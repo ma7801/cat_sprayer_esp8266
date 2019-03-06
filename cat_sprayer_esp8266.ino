@@ -12,50 +12,78 @@
  *  
  */
 
+#include <BlynkSimpleEsp8266.h>
+
 
 #define DEBUG 1
-#define SERIAL_DELAY 200
+#define IO_USERNAME  "ma7801"
+#define IO_KEY       "98bc56ceffa54facb2458d5e4f27aae1"
 
-const uint8_t pirPin = D4;        
-const uint8_t sprayerPin = D2; 
-const uint8_t LED1Pin = D0;
-const uint8_t LED2Pin = D1;
-const uint8_t buttonPin = D3;     
+
+const uint8_t pirPin = D7;        
+const uint8_t sprayerPin = D5; 
+const uint8_t LED1Pin = D1;
+const uint8_t LED2Pin = D2;
+const uint8_t buttonPin = D6;     
 const uint8_t enabledLEDPin = LED_BUILTIN;
 
-//const period_t sleepIterationLength = SLEEP_8S;
 const int sprayDuration = 250;   // in milliseconds
-//const int disabledIterationInterval = 36; // in 8 second "chunks" 
-const int buttonDelay = 350; //in milliseconds
+//const int buttonDelay = 1; //in milliseconds
 
-//volatile bool button_pressed;
+volatile bool button_pressed;
 //volatile bool pir_triggered;
 int LEDOnCount;
+bool LED1State = false;
+bool LED2State = false;
+bool buttonLock = false;
+byte powerOnBlinkIteration = 1;
 //int remainingDisabledIterations;
 //bool secondInterval;
 //bool okToIdle;
 //unsigned long int lastButtonPress;
 
+char auth[] = "2c1db245cdc649ecb62a966a78a83204";  // for Blynk
+char ssid[] = "Pilsa_EXT";
+char pass[] = "MJLLAnder$729";
+
+BlynkTimer timer;
+WidgetTerminal terminal(V0);
+
+void t_powerOnBlinks() {
+
+  // Last iteration
+  if (powerOnBlinkIteration == 5) {
+    LED1State = false;
+    LED2State = false;
+  }
+  // During blinking
+  else {
+    LED1State = !LED1State;
+    LED2State = !LED1State;
+  }
+  digitalWrite(LED1Pin, LED1State);
+  digitalWrite(LED2Pin, LED2State);
+  
+  powerOnBlinkIteration++;
+  
+}
 
 void setup() {
   #ifdef DEBUG
   Serial.begin(115200);
   #endif
 
+  Blynk.begin(auth, ssid, pass);
+
   // Set up pins that aren't inputs
   pinMode(sprayerPin, OUTPUT);
   pinMode(LED1Pin, OUTPUT);
   pinMode(LED2Pin, OUTPUT);
+  //pinMode(buttonPin, INPUT);
 
   // Flash external LEDs to indicate power on
-  for(int i = 0; i < 2; i++) {
-    digitalWrite(LED1Pin, HIGH);
-    digitalWrite(LED2Pin, LOW);
-    delay(250);
-    digitalWrite(LED2Pin, HIGH);
-    digitalWrite(LED1Pin, LOW);
-    delay(250);
-  }
+  timer.setTimer(250L, t_powerOnBlinks, 5);
+  Serial.println("Serial test!");
 
   // Initialize flags, etc.
   //pir_triggered = false;
@@ -74,16 +102,92 @@ void setup() {
   digitalWrite(LED1Pin, LOW);
   digitalWrite(LED2Pin, LOW);
   digitalWrite(buttonPin, LOW);
-  digitalWrite(enabledLEDPin, LOW);
+  //digitalWrite(enabledLEDPin, LOW);
 
   // Attach interrupts
   //attachInterrupt(digitalPinToInterrupt(buttonPin), buttonISR, RISING);
   //attachInterrupt(digitalPinToInterrupt(pirPin), pirOnISR, RISING);
+  terminal.clear();
+  terminal.println("Power on");
+
+
+  // Set event handlers
+  //timer.setInterval(buttonDelay, t_buttonHandler);
   
-  Serial.println(enabledLEDPin);
 }
 
+void buttonHandler() {
+  
+  // Button handler
+ 
+  // If the button has been released, release the "lock" on the button
+  if (digitalRead(buttonPin) == LOW) {
+    buttonLock = false;
+  }
+  
+  if (digitalRead(buttonPin) == HIGH && buttonLock == false) {
+    
+    #ifdef DEBUG
+    terminal.println("Button pressed");
+    #endif
+
+    // Put a the button in a "lock" state so that this code doesn't get run again during the same button press
+    buttonLock = true;
+
+    // Prevent idle state
+    //okToIdle = false;
+    
+    // Case 0: No LEDs lit
+    if (LEDOnCount == 0) {
+      // Turn on LED1
+      digitalWrite(LED1Pin, HIGH);
+  
+      LEDOnCount = 1;
+      
+      // Set "remainingDisabledIterations" to the disabledIterationsInteveral (acts as a flag and a counter)
+      //remainingDisabledIterations = disabledIterationInterval;
+
+    }
+  
+    // Case 1: Only LED1 is lit; restart disabled mode with double the iteration length:
+    else if (LEDOnCount == 1) {    
+      // Turn on LED2
+      digitalWrite(LED2Pin, HIGH);
+      
+      // Now 2 LEDs are on
+      LEDOnCount = 2;
+  
+      //secondInterval = true;
+
+      // Reset the iterations amount
+      //remainingDisabledIterations = disabledIterationInterval;
+
+    }
+    else if (LEDOnCount == 2) {
+    
+      #ifdef DEBUG
+      Serial.println("Turning off both LEDs - user cancelling disable");
+      #endif
+
+      //Turn off both LEDs
+      digitalWrite(LED1Pin, LOW);
+      digitalWrite(LED2Pin, LOW);
+
+      // Reset flags / counters
+      LEDOnCount = 0;
+      //remainingDisabledIterations = 1;  // The "1" is for a delay after coming out of disabled mode
+      //secondInterval = false;      
+    }
+  }
+
+}
+
+
 void loop() {
+
+  Blynk.run();
+  timer.run();
+  buttonHandler();
   
   // If disabled
   /*
@@ -138,60 +242,8 @@ void loop() {
   }
 */
   
-  /* Button handler -- button_pressed set to true in buttonISR() 
-  if (button_pressed) {
 
-    button_pressed = false;
-
-    // Prevent idle state
-    okToIdle = false;
-    
-    // Case 0: No LEDs lit
-    if (LEDOnCount == 0) {
-      // Turn on LED1
-      digitalWrite(LED1Pin, HIGH);
-  
-      LEDOnCount = 1;
-      
-      // Set "remainingDisabledIterations" to the disabledIterationsInteveral (acts as a flag and a counter)
-      remainingDisabledIterations = disabledIterationInterval;
-
-    }
-  
-    // Case 1: Only LED1 is lit; restart disabled mode with double the iteration length:
-    else if (LEDOnCount == 1) {    
-      // Turn on LED2
-      digitalWrite(LED2Pin, HIGH);
-      
-      // Now 2 LEDs are on
-      LEDOnCount = 2;
-  
-      secondInterval = true;
-
-      // Reset the iterations amount
-      remainingDisabledIterations = disabledIterationInterval;
-
-    }
-    else if (LEDOnCount == 2) {
-    
-      #ifdef DEBUG
-      Serial.println("Turning off both LEDs - user cancelling disable");
-      #endif
-
-      //Turn off both LEDs
-      digitalWrite(LED1Pin, LOW);
-      digitalWrite(LED2Pin, LOW);
-
-      // Reset flags / counters
-      LEDOnCount = 0;
-      remainingDisabledIterations = 1;  // The "1" is for a delay after coming out of disabled mode
-      secondInterval = false;      
-    }
-
-    // Don't want to run rest of code (avoids possible spray immediately after disable cancellation).
-    return;
-  }
-
+/*
   // If motion detected
   if(pir_triggered) {
 
@@ -264,20 +316,4 @@ void pirOnISR() {
   button_pressed = false;
 }
 
-void buttonISR() {
-  // Wait for the button to be released
-  //while (digitalRead(buttonPin) == HIGH);
-  
-  //if(millis() - lastButtonPress > 350) {
-    //lastButtonPress = millis();
-    
-    #ifdef DEBUG 
-    Serial.println("Button input!");
-    delay(SERIAL_DELAY);
-    #endif
-    
-    //delay(buttonDelay);
-    button_pressed = true;
-  //}
-}
 */
