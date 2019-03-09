@@ -1,23 +1,27 @@
 /* TODO 
  *  
  *  Code:
+ *  - PIR code
+ *  - Sprayer code -- maybe have an internal LED represent a spray for right now
+ *  - use timers for disabled feature?  
+ *  - also, disable remote from Blynk app
+ *  
 
  *  
  *  
  *  
  *  
  *  Notes:
- *  - D0 cannot be used as an interrupt pin
- *  - Don't use D9 & up (used for serial communication)
+ *  - Not using real time clock -- will probably take too much power and cause a headache once I implement low power; Blynk records timestamps, albeit it doesn't display them on app (only for CSV download?)
  *  
  */
 
-#include <BlynkSimpleEsp8266.h>
-
+#include "BlynkSimpleEsp8266.h"
+#include "ESP8266WiFi.h"   
 
 #define DEBUG 1
-#define IO_USERNAME  "ma7801"
-#define IO_KEY       "98bc56ceffa54facb2458d5e4f27aae1"
+//#define IO_USERNAME  "ma7801"
+//#define IO_KEY       "98bc56ceffa54facb2458d5e4f27aae1"
 
 
 const uint8_t pirPin = D7;        
@@ -28,7 +32,7 @@ const uint8_t buttonPin = D6;
 const uint8_t enabledLEDPin = LED_BUILTIN;
 
 const int sprayDuration = 250;   // in milliseconds
-//const int buttonDelay = 1; //in milliseconds
+const int buttonBounceDelay = 150; //in milliseconds
 
 volatile bool button_pressed;
 //volatile bool pir_triggered;
@@ -36,15 +40,22 @@ int LEDOnCount;
 bool LED1State = false;
 bool LED2State = false;
 bool buttonLock = false;
-byte powerOnBlinkIteration = 1;
+
+//byte powerOnBlinkIteration = 1;
 //int remainingDisabledIterations;
 //bool secondInterval;
 //bool okToIdle;
 //unsigned long int lastButtonPress;
 
-char auth[] = "2c1db245cdc649ecb62a966a78a83204";  // for Blynk
-char ssid[] = "Pilsa_EXT";
-char pass[] = "MJLLAnder$729";
+String currentTime;
+String currentDate;
+
+// Blynk auth key
+#define BLYNK_AUTH "2c1db245cdc649ecb62a966a78a83204"
+
+// WIFI router credentials
+#define WIFI_SSID "Pilsa_EXT"
+#define WIFI_PW   "MJLLAnder$729"
 
 BlynkTimer timer;
 WidgetTerminal terminal(V0);
@@ -73,7 +84,7 @@ void setup() {
   Serial.begin(115200);
   #endif
 
-  Blynk.begin(auth, ssid, pass);
+  Blynk.begin(BLYNK_AUTH, WIFI_SSID, WIFI_PW);
 
   // Set up pins that aren't inputs
   pinMode(sprayerPin, OUTPUT);
@@ -112,12 +123,19 @@ void setup() {
 
 
   // Set event handlers
-  //timer.setInterval(buttonDelay, t_buttonHandler);
+  timer.setInterval(buttonBounceDelay, t_buttonHandler);
   
 }
 
-void buttonHandler() {
-  
+void t_buttonHandler() {
+
+  updateDateAndTime();
+  #ifdef DEBUG
+  Serial.print("Timestamp: ");
+  Serial.print(currentDate);
+  Serial.print(", ");
+  Serial.println(currentTime);
+  #endif
   // Button handler
  
   // If the button has been released, release the "lock" on the button
@@ -182,12 +200,18 @@ void buttonHandler() {
 
 }
 
+void t_checkMotion() {
+  
+}
+
+void t_sprayOnMotion() {
+  
+}
 
 void loop() {
 
   Blynk.run();
   timer.run();
-  buttonHandler();
   
   // If disabled
   /*
