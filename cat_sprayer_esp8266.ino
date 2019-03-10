@@ -31,24 +31,34 @@ const uint8_t LED2Pin = D2;
 const uint8_t buttonPin = D6;     
 const uint8_t enabledLEDPin = LED_BUILTIN;
 
-const int sprayDuration = 250;   // in milliseconds
-const int buttonBounceDelay = 150; //in milliseconds
+const int sprayDuration = 500;   // in milliseconds
+const int sprayDelayDuration = 10000; // ms -- should be greater than 8000 because PIR stays high for about 8 seconds or so, even if no motion
+const int buttonCheckInterval = 150; //in milliseconds
+const int checkForMotionInterval = 1000; // ms
+const int sprayInterval = 250; //ms
+const int blynkHIGH = 1023;
+
 
 volatile bool button_pressed;
 //volatile bool pir_triggered;
-int LEDOnCount;
+int LEDOnCount = 0;
 bool LED1State = false;
 bool LED2State = false;
 bool buttonLock = false;
+bool justSprayed = false;
+bool sprayDelayState = false;
+long lastSprayTime = 0;
+bool blynkSprayButton = false;
 
-//byte powerOnBlinkIteration = 1;
+byte powerOnBlinkIteration = 1;
 //int remainingDisabledIterations;
 //bool secondInterval;
 //bool okToIdle;
 //unsigned long int lastButtonPress;
 
-String currentTime;
-String currentDate;
+bool motionDetected;
+
+
 
 // Blynk auth key
 #define BLYNK_AUTH "2c1db245cdc649ecb62a966a78a83204"
@@ -84,6 +94,12 @@ void setup() {
   Serial.begin(115200);
   #endif
 
+  digitalWrite(pirPin, LOW);   //per HC-SR505 datasheet
+  digitalWrite(sprayerPin, LOW);
+  digitalWrite(LED1Pin, LOW);
+  digitalWrite(LED2Pin, LOW);
+  digitalWrite(buttonPin, LOW);
+
   Blynk.begin(BLYNK_AUTH, WIFI_SSID, WIFI_PW);
 
   // Set up pins that aren't inputs
@@ -96,46 +112,23 @@ void setup() {
   timer.setTimer(250L, t_powerOnBlinks, 5);
   Serial.println("Serial test!");
 
-  // Initialize flags, etc.
-  //pir_triggered = false;
-  LEDOnCount = 0;
-  //button_pressed = false;
-  //secondInterval = false;
-  //okToIdle = false;
-  //lastButtonPress = millis();
-
-  // Start off disabled for 2 iterations ~= 16 seconds
-  //remainingDisabledIterations = 2;  
-
   // Initialize pin states
-  digitalWrite(pirPin, LOW);   //per HC-SR505 datasheet
-  digitalWrite(sprayerPin, LOW);
-  digitalWrite(LED1Pin, LOW);
-  digitalWrite(LED2Pin, LOW);
-  digitalWrite(buttonPin, LOW);
+
   //digitalWrite(enabledLEDPin, LOW);
 
-  // Attach interrupts
-  //attachInterrupt(digitalPinToInterrupt(buttonPin), buttonISR, RISING);
-  //attachInterrupt(digitalPinToInterrupt(pirPin), pirOnISR, RISING);
   terminal.clear();
   terminal.println("Power on");
 
 
   // Set event handlers
-  timer.setInterval(buttonBounceDelay, t_buttonHandler);
+  timer.setInterval(buttonCheckInterval, t_buttonHandler);
+  timer.setInterval(checkForMotionInterval, t_checkForMotion); 
+  timer.setInterval(sprayInterval, t_spray);
   
 }
 
 void t_buttonHandler() {
 
-  updateDateAndTime();
-  #ifdef DEBUG
-  Serial.print("Timestamp: ");
-  Serial.print(currentDate);
-  Serial.print(", ");
-  Serial.println(currentTime);
-  #endif
   // Button handler
  
   // If the button has been released, release the "lock" on the button
@@ -200,18 +193,94 @@ void t_buttonHandler() {
 
 }
 
-void t_checkMotion() {
-  
+void t_checkForMotion() {
+  bool pirState = digitalRead(pirPin);
+
+  // if PIR is triggered (low -> high)
+  if(pirState == HIGH && motionDetected == false) {
+    //***TEMPORARY REMARK OUT BELOW-- NEED TO UNREMARK FOR PIR TO WORK!!!
+    //motionDetected = true;
+    Serial.println("Motion detected!");
+    Blynk.virtualWrite(V1, blynkHIGH);
+  }
+
+  // if PIR goes low from being high
+  if(pirState == LOW && motionDetected == true) {
+    motionDetected = false;
+    Serial.println("No motion detected.");
+    Blynk.virtualWrite(V1, 0);
+  }
 }
 
-void t_sprayOnMotion() {
+void t_spray() {
+  /* Spray will occur if:
+   *  - motion was detected
+   *  - Blynk button was pressed
+   */
+  // Turn off the sprayer if we just sprayed
+  if (justSprayed == true) {
+    //If sprayDuration elapsed
+    if (millis() - lastSprayTime >= sprayDuration) {
+      digitalWrite(sprayerPin, LOW);
+      Blynk.virtualWrite(V2, 0);
+      Serial.println("Spray turned off.");
+      justSprayed = false;  
+    }
+
+    // don't run rest of code in function
+    return;
+    
+  }
   
+  // See if we're delaying between sprays -- if so don't allow another spray until spray delay timer has elapsed
+  if (sprayDelayState == true) {
+    // Bug fix -- Blynk doesn't always get the first virtualWrite that the sprayer is off in the "justSprayed == true" if statement above
+    Blynk.virtualWrite(V2,0);
+    
+    if (millis() - lastSprayTime >= sprayDelayDuration) {
+      sprayDelayState = false;
+    }
+    else return;
+  }
+  
+  // Spray if motion detected
+  if (motionDetected) {
+    spray();
+    justSprayed = true;  
+    sprayDelayState = true;
+    lastSprayTime = millis();
+    blynkSprayButton = false;
+  }
+}
+
+
+// If sprayer button pressed on Blynk
+BLYNK_WRITE(V4) {
+  blynkSprayButton = (bool)param.asInt();
+
+  if(blynkSprayButton) {
+    spray();
+  }
+  else {
+    // turn off sprayer
+    Serial.println("Turning off sprayer...");
+    digitalWrite(sprayerPin, LOW);
+  }
+
+}
+
+
+void spray() {
+  Serial.println("Spray!!!");
+  Blynk.virtualWrite(V2, blynkHIGH);
+  digitalWrite(sprayerPin, HIGH);  
 }
 
 void loop() {
 
   Blynk.run();
   timer.run();
+ 
   
   // If disabled
   /*
