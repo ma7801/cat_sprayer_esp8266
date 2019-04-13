@@ -364,11 +364,11 @@ void wakeUpCallBack() {
 
 void goToSleep() {
   //Disable all timers
-  timer.disable(disabledTimerId);
+  /*timer.disable(disabledTimerId);
   timer.disable(buttonCheckTimerId);
   timer.disable(checkForMotionTimerId);
   timer.disable(sprayTimerId);
-  
+  */
   
   Serial.println("Attempting to go to sleep...");
   //wifi_station_disconnect();
@@ -382,6 +382,7 @@ void goToSleep() {
   wifi_fpm_set_wakeup_cb(wakeUpCallBack);     //  Set wakeup  callback  
   //wifi_fpm_do_sleep(MAX_SLEEP_TIME);  
   WiFi.setSleepMode(WIFI_LIGHT_SLEEP);
+  
   WiFi.forceSleepBegin();
   //delay(2000);
   Serial.println("Shouldn't print immediately.");
