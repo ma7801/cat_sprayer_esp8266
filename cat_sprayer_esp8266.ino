@@ -1,9 +1,11 @@
 /* TODO 
  *  
  *  Code:
- *  - use timers for disabled feature?  
- *  - also, disable remote from Blynk app
- *  
+ *  - fix bug with delay of notification: delays the first hour without any notification sent
+ *  - change code to use "enterDisabledState"
+ *  - decide to use const's or #defines (research which is better)
+ *  - make Blynk pins const's or #defines, not literals in code
+ *  - look for any other literals in code and use const's or #defines
 
  *  
  *  
@@ -17,7 +19,7 @@
 #include "BlynkSimpleEsp8266.h"
 #include "ESP8266WiFi.h"   
 
-#define DEBUG 1
+//#define DEBUG 1
 //#define IO_USERNAME  "ma7801"
 //#define IO_KEY       "98bc56ceffa54facb2458d5e4f27aae1"
 
@@ -31,15 +33,14 @@ const uint8_t enabledLEDPin = LED_BUILTIN;
 
 const int sprayDuration = 500;   // in milliseconds
 const int sprayDelayDuration = 10000; // ms -- should be greater than 8000 because PIR stays high for about 8 seconds or so, even if no motion
+const long int sprayNotificationInterval = 60 * 60 * 1000; // ms - minimum time between push notifications from spray; 60*60*1000 = 1 hour
 const int buttonCheckInterval = 150; //in milliseconds
 const int checkForMotionInterval = 1000; // ms
 const int disabledTimerDuration = 5 * 60 * 1000; // ms
 const int sprayInterval = 250; //ms
 const int blynkHIGH = 1023;  // for binary display in "SuperChart"
+const int startupDisableDuration = 15 * 1000;
 
-
-volatile bool button_pressed;
-//volatile bool pir_triggered;
 int LEDOnCount = 0;
 bool LED1State = false;
 bool LED2State = false;
@@ -47,16 +48,12 @@ bool buttonLock = false;
 bool justSprayed = false;
 bool sprayDelayState = false;
 long lastSprayTime = 0;
+long lastSprayNotificationTime = 0;
 bool blynkSprayButton = false;
 bool disabledState = false;
 int disabledTimerId;
 
 byte powerOnBlinkIteration = 1;
-//int remainingDisabledIterations;
-//bool secondInterval;
-//bool okToIdle;
-//unsigned long int lastButtonPress;
-
 bool motionDetected;
 
 
@@ -114,6 +111,9 @@ void setup() {
   timer.setInterval(buttonCheckInterval, t_buttonHandler);
   timer.setInterval(checkForMotionInterval, t_checkForMotion); 
   timer.setInterval(sprayInterval, t_spray);
+
+  // Set to disabled state 
+  enterDisabledState(startupDisableDuration);
   
 }
 
@@ -246,6 +246,23 @@ void changeLEDs(bool LED1State, bool LED2State) {
   LEDOnCount = LED1State + LED2State;
 }
 
+void enterDisabledState(long duration) {
+  // Delete any existing disabled timer
+  timer.deleteTimer(disabledTimerId);
+
+  // Set disabled state to true
+  disabledState = true;
+  
+  // Set disabled timer
+  disabledTimerId = timer.setTimeout(duration, t_cancelDisable);
+
+  // Light both LEDs
+  changeLEDs(1,1);
+
+  // Report to Blynk app
+  Blynk.virtualWrite(V3, HIGH);
+}
+
 void t_cancelDisable() {
   // Turn off LEDs
   changeLEDs(0,0);
@@ -316,10 +333,21 @@ void t_spray() {
   
   // Spray if motion detected
   if (motionDetected) {
+
+    // Push notification code
+    // If notification hasn't already been made in the last sprayNotificationInterval, send a push notification
+    if (millis() - lastSprayNotificationTime >= sprayNotificationInterval) {
+      Blynk.notify("Cat Sprayer {DEVICE_NAME} sprayed via motion detection.");  
+      lastSprayNotificationTime = millis();
+    }
+
+    // Spray the sprayer
     spray();
+    
     #ifdef DEBUG
     digitalWrite(LED_BUILTIN, LOW);
     #endif
+    
     justSprayed = true;  
     sprayDelayState = true;
     lastSprayTime = millis();
