@@ -1,8 +1,8 @@
 /* TODO 
  *  
  *  Code:
- *  - fix bug with delay of notification: delays the first hour without any notification sent
- *  - change code to use "enterDisabledState"
+ *  - change code to use "enterDisabledState" (STILL NEED to do for Blynk disable)
+ *  - Putnam wifi if no home wifi
  *  - decide to use const's or #defines (research which is better)
  *  - make Blynk pins const's or #defines, not literals in code
  *  - look for any other literals in code and use const's or #defines
@@ -13,13 +13,13 @@
  *  
  *  Notes:
  *  - Not using real time clock -- will probably take too much power and cause a headache once I implement low power; Blynk records timestamps, albeit it doesn't display them on app (only for CSV download?)
- *  
+ *  - Notification will not be sent in first hour
  */
 
 #include "BlynkSimpleEsp8266.h"
 #include "ESP8266WiFi.h"   
 
-//#define DEBUG 1
+#define DEBUG 1
 //#define IO_USERNAME  "ma7801"
 //#define IO_KEY       "98bc56ceffa54facb2458d5e4f27aae1"
 
@@ -51,6 +51,7 @@ long lastSprayTime = 0;
 long lastSprayNotificationTime = 0;
 bool blynkSprayButton = false;
 bool disabledState = false;
+bool firstDisable = true;
 int disabledTimerId;
 
 byte powerOnBlinkIteration = 1;
@@ -65,10 +66,12 @@ bool motionDetected;
 #define WIFI_SSID "Pilsa_EXT"
 #define WIFI_PW   "MJLLAnder$729"
 
+// School WIFI router credentials
+#define SCHOOL_WIFI_SSID "nclack_guest"
+#define SCHOOL_WIFI_PW "nclackguest"
+
 BlynkTimer timer;
 WidgetTerminal terminal(V0);
-
-
 
 void setup() {
   #ifdef DEBUG
@@ -96,7 +99,8 @@ void setup() {
   //pinMode(buttonPin, INPUT);
 
   // Flash external LEDs to indicate power on
-  timer.setTimer(250L, t_powerOnBlinks, 5);
+  //timer.setTimer(250L, t_powerOnBlinks, 5);
+  
   Serial.println("Serial test!");
 
   // Initialize pin states
@@ -117,7 +121,7 @@ void setup() {
   
 }
 
-void t_powerOnBlinks() {
+/*void t_powerOnBlinks() {
 
   // Last iteration
   if (powerOnBlinkIteration == 5) {
@@ -134,7 +138,7 @@ void t_powerOnBlinks() {
   
   powerOnBlinkIteration++;
   
-}
+}*/
 
 
 void t_buttonHandler() {
@@ -145,12 +149,14 @@ void t_buttonHandler() {
   if (digitalRead(buttonPin) == LOW) {
     buttonLock = false;
   }
+
+  #ifdef DEBUG
+  if (digitalRead(buttonPin == HIGH)) {
+    terminal.println("Button pressed!");
+  }
+  #endif
   
   if (digitalRead(buttonPin) == HIGH && buttonLock == false) {
-    
-    #ifdef DEBUG
-    terminal.println("Button pressed");
-    #endif
 
     // Put a the button in a "lock" state so that this code doesn't get run again during the same button press
     buttonLock = true;
@@ -161,18 +167,22 @@ void t_buttonHandler() {
     // Case 0: No LEDs lit
     if (LEDOnCount == 0) {
       // Turn on LED1
-      changeLEDs(1,0);
-      
+      //changeLEDs(1,0);
+
+      #ifdef DEBUG
+      Serial.println("Entering short disabled state...");
+      #endif
+      enterDisabledState(disabledTimerDuration, true, false);
       //LEDOnCount = 1;
 
       // Set disabled flag
-      disabledState = true;
+      //disabledState = true;
 
       // Report as disabled to Blynk App (det disable button as disabled)
-      Blynk.virtualWrite(V3, HIGH);
+      //Blynk.virtualWrite(V3, HIGH);
       
       // Create a disable timer
-      disabledTimerId = timer.setTimeout(disabledTimerDuration, t_cancelDisable);
+      //disabledTimerId = timer.setTimeout(disabledTimerDuration, t_cancelDisable);
       
       // Set "remainingDisabledIterations" to the disabledIterationsInteveral (acts as a flag and a counter)
       //remainingDisabledIterations = disabledIterationInterval;
@@ -182,14 +192,18 @@ void t_buttonHandler() {
     // Case 1: Only LED1 is lit; restart disabled mode with double the iteration length:
     else if (LEDOnCount == 1) {    
       // Turn on LEDs 1 & 2
-      changeLEDs(1,1);
+      //changeLEDs(1,1);
       
+      #ifdef DEBUG
+      Serial.println("Entering long disabled state...");
+      #endif
+      enterDisabledState(disabledTimerDuration*2);
       // Now 2 LEDs are on
       //LEDOnCount = 2;
 
       // Delete the previous disable timer and set a new one double the disabledTimerDuration length
-      timer.deleteTimer(disabledTimerId);
-      disabledTimerId = timer.setTimeout(disabledTimerDuration * 2, t_cancelDisable);
+      //timer.deleteTimer(disabledTimerId);
+      //disabledTimerId = timer.setTimeout(disabledTimerDuration * 2, t_cancelDisable);
       
       //secondInterval = true;
 
@@ -203,18 +217,17 @@ void t_buttonHandler() {
       Serial.println("Turning off both LEDs - user cancelling disable");
       #endif
 
-      //Turn off both LEDs
-      changeLEDs(0,0);
+      t_cancelDisable();
 
       // Delete the disabled timer and reset the disabledState flag
-      timer.deleteTimer(disabledTimerId);
-      disabledState = false;
+      //timer.deleteTimer(disabledTimerId);
+      //disabledState = false;
 
       // Report as enabled to Blynk App (det disable button as enabled)
-      Blynk.virtualWrite(V3, LOW);
+      //Blynk.virtualWrite(V3, LOW);
       
       // Reset flags / counters
-      LEDOnCount = 0;
+      //LEDOnCount = 0;
       //remainingDisabledIterations = 1;  // The "1" is for a delay after coming out of disabled mode
       //secondInterval = false;      
     }
@@ -246,9 +259,14 @@ void changeLEDs(bool LED1State, bool LED2State) {
   LEDOnCount = LED1State + LED2State;
 }
 
-void enterDisabledState(long duration) {
-  // Delete any existing disabled timer
-  timer.deleteTimer(disabledTimerId);
+void enterDisabledState(long duration, bool LED1State, bool LED2State) {
+  // Delete any existing disabled timer (skip if this is the first disable (bug fix); otherwise, button handler timer deleted because disableTimerId initialized to 0 which matches id of first timer created, I think
+  if (firstDisable == true) {
+    firstDisable = false;
+  }
+  else {
+    timer.deleteTimer(disabledTimerId);  
+  }
 
   // Set disabled state to true
   disabledState = true;
@@ -256,11 +274,15 @@ void enterDisabledState(long duration) {
   // Set disabled timer
   disabledTimerId = timer.setTimeout(duration, t_cancelDisable);
 
-  // Light both LEDs
-  changeLEDs(1,1);
+  // Light LEDs
+  changeLEDs(LED1State,LED2State);
 
   // Report to Blynk app
   Blynk.virtualWrite(V3, HIGH);
+}
+
+void enterDisabledState(long duration) {
+  enterDisabledState(duration, true, true);
 }
 
 void t_cancelDisable() {
@@ -269,6 +291,9 @@ void t_cancelDisable() {
 
   // Reset disabledState flag
   disabledState = false;
+
+  // Delete disabled timer
+  //timer.deleteTimer(disabledTimerId);
 
   // Report to Blynk app
   Blynk.virtualWrite(V3, LOW);
