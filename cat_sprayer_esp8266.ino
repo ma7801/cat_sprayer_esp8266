@@ -1,15 +1,11 @@
 /* TODO 
  *  
  *  Code:
- *  - change code to use "enterDisabledState" (STILL NEED to do for Blynk disable)
  *  - Putnam wifi if no home wifi
- *  - decide to use const's or #defines (research which is better)
- *  - make Blynk pins const's or #defines, not literals in code
- *  - look for any other literals in code and use const's or #defines
-
  *  
  *  
- *  
+ *  Maybe:
+ *  - prevent spraying additional times within the same motion detection (i.e. wait until another low to high on motion detector before allowing sprayer to spray again)
  *  
  *  Notes:
  *  - Not using real time clock -- will probably take too much power and cause a headache once I implement low power; Blynk records timestamps, albeit it doesn't display them on app (only for CSV download?)
@@ -20,9 +16,7 @@
 #include "ESP8266WiFi.h"   
 
 #define DEBUG 1
-//#define IO_USERNAME  "ma7801"
-//#define IO_KEY       "98bc56ceffa54facb2458d5e4f27aae1"
-
+#define BLYNK_PRINT Serial
 
 const uint8_t pirPin = D7;        
 const uint8_t sprayerPin = D5; 
@@ -31,8 +25,8 @@ const uint8_t LED2Pin = D2;
 const uint8_t buttonPin = D6;     
 const uint8_t enabledLEDPin = LED_BUILTIN;
 
-const int sprayDuration = 500;   // in milliseconds
-const int sprayDelayDuration = 10000; // ms -- should be greater than 8000 because PIR stays high for about 8 seconds or so, even if no motion
+const int sprayDuration = 300;   // in milliseconds
+const int sprayDelayDuration = 10 * 1000; // ms -- should be greater than 8000 because PIR stays high for about 8 seconds or so, even if no motion
 const long int sprayNotificationInterval = 60 * 60 * 1000; // ms - minimum time between push notifications from spray; 60*60*1000 = 1 hour
 const int buttonCheckInterval = 150; //in milliseconds
 const int checkForMotionInterval = 1000; // ms
@@ -73,6 +67,14 @@ bool motionDetected;
 BlynkTimer timer;
 WidgetTerminal terminal(V0);
 
+#ifdef DEBUG
+//Print to serial and Blynk terminal
+void p(String msg) {
+  Serial.println(msg);
+  terminal.println(msg);
+}
+#endif
+
 void setup() {
   #ifdef DEBUG
   Serial.begin(115200);
@@ -87,7 +89,7 @@ void setup() {
   digitalWrite(LED_BUILTIN, HIGH);
   #endif
   
-  Blynk.begin(BLYNK_AUTH, WIFI_SSID, WIFI_PW);
+  Blynk.begin(BLYNK_AUTH, WIFI_SSID, WIFI_PW);  
 
   // Set up pins that aren't inputs
   pinMode(sprayerPin, OUTPUT);
@@ -96,21 +98,15 @@ void setup() {
   #ifdef DEBUG
   pinMode(LED_BUILTIN, OUTPUT);
   #endif
-  //pinMode(buttonPin, INPUT);
-
-  // Flash external LEDs to indicate power on
-  //timer.setTimer(250L, t_powerOnBlinks, 5);
+   
   
-  Serial.println("Serial test!");
-
-  // Initialize pin states
-
-  //digitalWrite(enabledLEDPin, LOW);
-
+  // Clear Blynk terminal
   terminal.clear();
-  terminal.println("Power on");
 
-
+  #ifdef DEBUG
+  p("Serial and terminal test!");
+  #endif
+  
   // Set event handlers
   timer.setInterval(buttonCheckInterval, t_buttonHandler);
   timer.setInterval(checkForMotionInterval, t_checkForMotion); 
@@ -121,24 +117,6 @@ void setup() {
   
 }
 
-/*void t_powerOnBlinks() {
-
-  // Last iteration
-  if (powerOnBlinkIteration == 5) {
-    LED1State = false;
-    LED2State = false;
-  }
-  // During blinking
-  else {
-    LED1State = !LED1State;
-    LED2State = !LED1State;
-  }
-  digitalWrite(LED1Pin, LED1State);
-  digitalWrite(LED2Pin, LED2State);
-  
-  powerOnBlinkIteration++;
-  
-}*/
 
 
 void t_buttonHandler() {
@@ -150,19 +128,15 @@ void t_buttonHandler() {
     buttonLock = false;
   }
 
-  #ifdef DEBUG
-  if (digitalRead(buttonPin == HIGH)) {
-    terminal.println("Button pressed!");
-  }
-  #endif
   
   if (digitalRead(buttonPin) == HIGH && buttonLock == false) {
 
     // Put a the button in a "lock" state so that this code doesn't get run again during the same button press
     buttonLock = true;
 
-    // Prevent idle state
-    //okToIdle = false;
+    #ifdef DEBUG
+    p("Button pressed!");
+    #endif 
     
     // Case 0: No LEDs lit
     if (LEDOnCount == 0) {
@@ -170,87 +144,59 @@ void t_buttonHandler() {
       //changeLEDs(1,0);
 
       #ifdef DEBUG
-      Serial.println("Entering short disabled state...");
+      p("Entering short disabled state...");
       #endif
       enterDisabledState(disabledTimerDuration, true, false);
       //LEDOnCount = 1;
-
-      // Set disabled flag
-      //disabledState = true;
-
-      // Report as disabled to Blynk App (det disable button as disabled)
-      //Blynk.virtualWrite(V3, HIGH);
-      
-      // Create a disable timer
-      //disabledTimerId = timer.setTimeout(disabledTimerDuration, t_cancelDisable);
-      
-      // Set "remainingDisabledIterations" to the disabledIterationsInteveral (acts as a flag and a counter)
-      //remainingDisabledIterations = disabledIterationInterval;
 
     }
   
     // Case 1: Only LED1 is lit; restart disabled mode with double the iteration length:
     else if (LEDOnCount == 1) {    
-      // Turn on LEDs 1 & 2
-      //changeLEDs(1,1);
       
       #ifdef DEBUG
-      Serial.println("Entering long disabled state...");
+      p("Entering long disabled state...");
       #endif
       enterDisabledState(disabledTimerDuration*2);
-      // Now 2 LEDs are on
-      //LEDOnCount = 2;
-
-      // Delete the previous disable timer and set a new one double the disabledTimerDuration length
-      //timer.deleteTimer(disabledTimerId);
-      //disabledTimerId = timer.setTimeout(disabledTimerDuration * 2, t_cancelDisable);
-      
-      //secondInterval = true;
-
-      // Reset the iterations amount
-      //remainingDisabledIterations = disabledIterationInterval;
-
+    
     }
     else if (LEDOnCount == 2) {
     
       #ifdef DEBUG
-      Serial.println("Turning off both LEDs - user cancelling disable");
+      p("User cancelling disable");
       #endif
 
       t_cancelDisable();
 
-      // Delete the disabled timer and reset the disabledState flag
-      //timer.deleteTimer(disabledTimerId);
-      //disabledState = false;
-
-      // Report as enabled to Blynk App (det disable button as enabled)
-      //Blynk.virtualWrite(V3, LOW);
-      
-      // Reset flags / counters
-      //LEDOnCount = 0;
-      //remainingDisabledIterations = 1;  // The "1" is for a delay after coming out of disabled mode
-      //secondInterval = false;      
     }
   }
 }
 
-// If disabled button is pressed on Blynk app
+// If temp disabled button is pressed on Blynk app (Virtual pin 3)
 BLYNK_WRITE(V3) {
-  disabledState = (bool)param.asInt();
-  changeLEDs(disabledState, disabledState);
 
-  // Set a timer to cancel the disable if disabled was pressed (double duration)
-  if(disabledState == true) {
-    // Delete any existing timer
-    timer.deleteTimer(disabledTimerId);
-
-    // Set timer
-    disabledTimerId = timer.setTimeout(disabledTimerDuration * 2, t_cancelDisable);
+  // If button pressed on Blynk app
+  if ((bool)param.asInt() == true) {
+    enterDisabledState(disabledTimerDuration * 2);  
   }
+  // If button unpressed
   else {
-    // Cancel timer
-    timer.deleteTimer(disabledTimerId);
+    // Cancel disable
+    t_cancelDisable();
   }
+}
+
+// If hold disabled button is pressed on Blynk app (Virtual pin 5)
+BLYNK_WRITE(V5) {
+   // If button pressed on blynk app
+  if ((bool)param.asInt() == true) {
+    enterDisabledState(LONG_MAX);  
+  }
+   // If button unpressed
+  else {
+    // Cancel disable
+    t_cancelDisable();
+  }  
 }
 
 void changeLEDs(bool LED1State, bool LED2State) {
@@ -279,8 +225,10 @@ void enterDisabledState(long duration, bool LED1State, bool LED2State) {
 
   // Report to Blynk app
   Blynk.virtualWrite(V3, HIGH);
+  Blynk.virtualWrite(V5, HIGH);
 }
 
+// Overloaded enterDisabledState: will light both LEDs - this version of function called most of the time
 void enterDisabledState(long duration) {
   enterDisabledState(duration, true, true);
 }
@@ -293,10 +241,11 @@ void t_cancelDisable() {
   disabledState = false;
 
   // Delete disabled timer
-  //timer.deleteTimer(disabledTimerId);
+  timer.deleteTimer(disabledTimerId);
 
   // Report to Blynk app
   Blynk.virtualWrite(V3, LOW);
+  Blynk.virtualWrite(V5, LOW);
 }
 
 void t_checkForMotion() {
@@ -305,14 +254,14 @@ void t_checkForMotion() {
   // if PIR is triggered (low -> high)
   if(pirState == HIGH && motionDetected == false) {
     motionDetected = true;
-    Serial.println("Motion detected!");
+    p("Motion detected! (PIR went high.)");
     Blynk.virtualWrite(V1, blynkHIGH);
   }
 
   // if PIR goes low from being high
   if(pirState == LOW && motionDetected == true) {
     motionDetected = false;
-    Serial.println("No motion detected.");
+    p("PIR went low.");
     Blynk.virtualWrite(V1, 0);
   }
 }
@@ -328,10 +277,11 @@ void t_spray() {
     if (millis() - lastSprayTime >= sprayDuration) {
       #ifdef DEBUG
       digitalWrite(LED_BUILTIN, HIGH);
+      p("Spray turned off.");
       #endif
+      
       digitalWrite(sprayerPin, LOW);
       Blynk.virtualWrite(V2, 0);
-      Serial.println("Spray turned off.");
       justSprayed = false;  
     }
 
@@ -394,14 +344,17 @@ BLYNK_WRITE(V4) {
     // turn off sprayer
     #ifdef DEBUG
     digitalWrite(LED_BUILTIN, HIGH);
+    p("Turning off sprayer...");
     #endif
-    Serial.println("Turning off sprayer...");
     digitalWrite(sprayerPin, LOW);
   }
 }
 
 void spray() {
-  Serial.println("Spray!!!");
+  #ifdef DEBUG
+  p("Spray!!!");
+  #endif
+  
   Blynk.virtualWrite(V2, blynkHIGH);
   digitalWrite(sprayerPin, HIGH);  
 }
