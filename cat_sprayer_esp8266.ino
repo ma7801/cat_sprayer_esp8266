@@ -47,6 +47,7 @@ bool blynkSprayButton = false;
 bool disabledState = false;
 bool firstDisable = true;
 int disabledTimerId;
+bool notificationsAllowed = true;
 
 byte powerOnBlinkIteration = 1;
 bool motionDetected;
@@ -311,7 +312,7 @@ void t_spray() {
 
     // Push notification code
     // If notification hasn't already been made in the last sprayNotificationInterval, send a push notification
-    if (millis() - lastSprayNotificationTime >= sprayNotificationInterval) {
+    if ((millis() - lastSprayNotificationTime >= sprayNotificationInterval) && notificationsAllowed) {
       Blynk.notify("Cat Sprayer {DEVICE_NAME} sprayed via motion detection.");  
       lastSprayNotificationTime = millis();
     }
@@ -327,6 +328,9 @@ void t_spray() {
     sprayDelayState = true;
     lastSprayTime = millis();
     blynkSprayButton = false;
+
+    // This ensures the sprayer will not spray again until motion detector goes from low to high again
+    motionDetected = false;
   }
 }
 
@@ -357,6 +361,11 @@ void spray() {
   
   Blynk.virtualWrite(V2, blynkHIGH);
   digitalWrite(sprayerPin, HIGH);  
+}
+
+// If notifications button pressed
+BLYNK_WRITE(V6) {
+  notificationsAllowed = (bool) param.asInt();
 }
 
 void loop() {
