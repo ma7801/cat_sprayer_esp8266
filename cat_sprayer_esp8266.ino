@@ -2,6 +2,7 @@
  *  
  *  Code:
  *  - Putnam wifi if no home wifi
+ *  - fix spraying twice on same motion detect -- logic error.  Probably need yet another flag
  *  
  *  
  *  Maybe:
@@ -272,6 +273,7 @@ void t_spray() {
    *  - motion was detected
    *  - Blynk button was pressed
    */
+   
   // Turn off the sprayer if we just sprayed
   if (justSprayed == true) {
     //If sprayDuration elapsed
@@ -328,9 +330,6 @@ void t_spray() {
     sprayDelayState = true;
     lastSprayTime = millis();
     blynkSprayButton = false;
-
-    // This ensures the sprayer will not spray again until motion detector goes from low to high again
-    motionDetected = false;
   }
 }
 
