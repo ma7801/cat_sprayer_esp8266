@@ -59,7 +59,7 @@ bool motionDetected;
 #define BLYNK_AUTH "2c1db245cdc649ecb62a966a78a83204"
 
 // WIFI router credentials
-#define WIFI_SSID "Pilsa"
+#define WIFI_SSID "BunnyNacho"
 #define WIFI_PW   "MJLLAnder$729"
 
 // School WIFI router credentials
